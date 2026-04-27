@@ -37,14 +37,11 @@ jobs:
           mkdir -p /home/runner/.cache
           rm -rf "${LIBTORCH_ROOT}"
           curl -L "${LIBTORCH_URL}" -o /tmp/libtorch.zip
-          # extract into a temporary directory to avoid moving a directory into itself
           TMPDIR=$(mktemp -d)
           unzip -q /tmp/libtorch.zip -d "${TMPDIR}"
-          # most libtorch zips contain a top-level 'libtorch' directory; handle that
           if [ -d "${TMPDIR}/libtorch" ]; then
             mv "${TMPDIR}/libtorch" "${LIBTORCH_ROOT}"
           else
-            # fallback: move whole tmpdir contents into the target
             mv "${TMPDIR}" "${LIBTORCH_ROOT}"
           fi
           rm -rf "${TMPDIR}"
@@ -66,8 +63,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-tree
-          path: |
-            build/
+          path: build/
           if-no-files-found: error
           retention-days: 7
 
@@ -90,39 +86,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-tree
-          path: .
-      - name: Place build tree at repo root
-        if: always()
-        run: |
-          set -euo pipefail
-          # If the download already created ./build at repo root, nothing to do
-          if [ -d build ]; then
-            echo "build directory already present at repo root"
-          elif [ -f CMakeCache.txt ] || [ -d CMakeFiles ]; then
-            echo "build files extracted into repo root; moving into ./build"
-            mkdir -p build
-            shopt -s dotglob || true
-            mv CMakeCache.txt CMakeFiles Makefile cmake_install.cmake compile_commands.json autoresearchpp* build/ 2>/dev/null || true
-            rm -rf build-tree || true
-          elif [ -d build-tree/build ]; then
-            mv build-tree/build ./build
-            rm -rf build-tree || true
-          elif [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
-            mkdir -p build
-            shopt -s dotglob || true
-            mv build-tree/* build/ || true
-            rm -rf build-tree || true
-          else
-            FOUND=$(find build-tree -maxdepth 3 -type f -name CMakeCache.txt -print -quit 2>/dev/null || true)
-            if [ -n "${FOUND}" ]; then
-              DIR=$(dirname "${FOUND}")
-              mv "${DIR}" ./build
-              rm -rf build-tree || true
-            else
-              echo "Warning: no build directory found inside downloaded artifact" >&2
-              ls -la build-tree || true
-            fi
-          fi
+          path: build/
+
+      - name: Fix binary permissions
+        run: chmod +x build/autoresearch++
 
       - name: Run tests
         run: |
@@ -148,38 +115,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-tree
-          path: .
-      - name: Place build tree at repo root
-        if: always()
-        run: |
-          set -euo pipefail
-          if [ -d build ]; then
-            echo "build directory already present at repo root"
-          elif [ -f CMakeCache.txt ] || [ -d CMakeFiles ]; then
-            echo "build files extracted into repo root; moving into ./build"
-            mkdir -p build
-            shopt -s dotglob || true
-            mv CMakeCache.txt CMakeFiles Makefile cmake_install.cmake compile_commands.json autoresearchpp* build/ 2>/dev/null || true
-            rm -rf build-tree || true
-          elif [ -d build-tree/build ]; then
-            mv build-tree/build ./build
-            rm -rf build-tree || true
-          elif [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
-            mkdir -p build
-            shopt -s dotglob || true
-            mv build-tree/* build/ || true
-            rm -rf build-tree || true
-          else
-            FOUND=$(find build-tree -maxdepth 3 -type f -name CMakeCache.txt -print -quit 2>/dev/null || true)
-            if [ -n "${FOUND}" ]; then
-              DIR=$(dirname "${FOUND}")
-              mv "${DIR}" ./build
-              rm -rf build-tree || true
-            else
-              echo "Warning: no build directory found inside downloaded artifact" >&2
-              ls -la build-tree || true
-            fi
-          fi
+          path: build/
+
+      - name: Fix binary permissions
+        run: chmod +x build/autoresearch++
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -218,7 +157,6 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
-          # install general python deps from PyPI, then install torch from PyTorch cpu index
           python -m pip install numpy requests pyarrow rustbpe tiktoken --no-cache-dir
           python -m pip install --index-url https://download.pytorch.org/whl/cpu --no-cache-dir torch
 
@@ -282,38 +220,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-tree
-          path: .
-      - name: Place build tree at repo root
-        if: always()
-        run: |
-          set -euo pipefail
-          if [ -d build ]; then
-            echo "build directory already present at repo root"
-          elif [ -f CMakeCache.txt ] || [ -d CMakeFiles ]; then
-            echo "build files extracted into repo root; moving into ./build"
-            mkdir -p build
-            shopt -s dotglob || true
-            mv CMakeCache.txt CMakeFiles Makefile cmake_install.cmake compile_commands.json autoresearchpp* build/ 2>/dev/null || true
-            rm -rf build-tree || true
-          elif [ -d build-tree/build ]; then
-            mv build-tree/build ./build
-            rm -rf build-tree || true
-          elif [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
-            mkdir -p build
-            shopt -s dotglob || true
-            mv build-tree/* build/ || true
-            rm -rf build-tree || true
-          else
-            FOUND=$(find build-tree -maxdepth 3 -type f -name CMakeCache.txt -print -quit 2>/dev/null || true)
-            if [ -n "${FOUND}" ]; then
-              DIR=$(dirname "${FOUND}")
-              mv "${DIR}" ./build
-              rm -rf build-tree || true
-            else
-              echo "Warning: no build directory found inside downloaded artifact" >&2
-              ls -la build-tree || true
-            fi
-          fi
+          path: build/
+
+      - name: Fix binary permissions
+        run: chmod +x build/autoresearch++
 
       - name: Download train artifacts
         uses: actions/download-artifact@v4
@@ -405,7 +315,7 @@ jobs:
           snippets = []
           for p in files:
               txt = p.read_text(encoding='utf-8', errors='ignore')
-              snippets.append(f"### {p.as_posix()}\\n" + txt[:12000])
+              snippets.append(f"### {p.as_posix()}\n" + txt[:12000])
 
           metrics = (repo / 'metrics.jsonl').read_text(encoding='utf-8', errors='ignore')[-12000:]
           experiments = (repo / 'experiments.jsonl').read_text(encoding='utf-8', errors='ignore')[-24000:]
@@ -425,7 +335,7 @@ jobs:
           {experiments}
 
           Source context:
-          {'\\n\\n'.join(snippets)}
+          {'\n\n'.join(snippets)}
           """
 
           resp = requests.post(
@@ -450,12 +360,12 @@ jobs:
           if isinstance(content, list):
               content = ''.join(part.get('text', '') for part in content if isinstance(part, dict))
 
-          match = re.search(r"```diff\\s*(.*?)```", content, flags=re.S)
+          match = re.search(r"```diff\s*(.*?)```", content, flags=re.S)
           patch = match.group(1).strip() if match else content.strip()
           if not patch:
               raise SystemExit('Empty patch from model')
 
-          Path('agent.patch').write_text(patch + '\\n', encoding='utf-8')
+          Path('agent.patch').write_text(patch + '\n', encoding='utf-8')
           print('Wrote agent.patch')
           PY
 
@@ -531,7 +441,7 @@ jobs:
               'best_val_bpb_before': best,
           }
           with open('experiments.jsonl', 'a', encoding='utf-8') as f:
-              f.write(json.dumps(note) + '\\n')
+              f.write(json.dumps(note) + '\n')
           print(status)
           PY
 
@@ -542,7 +452,7 @@ jobs:
             python3 - <<'PY'
             import json
             with open('experiments.jsonl', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({'kind':'agent_note','status':'reverted_broken_tests'}) + '\\n')
+                f.write(json.dumps({'kind':'agent_note','status':'reverted_broken_tests'}) + '\n')
             PY
           else
             STATUS=$(python3 - <<'PY'
@@ -589,6 +499,3 @@ jobs:
           if gh api -X GET "repos/${REPO}/actions/variables/BOT_WEEKLY_COMMIT_COUNT" >/dev/null 2>&1; then
             gh api -X PATCH "repos/${REPO}/actions/variables/BOT_WEEKLY_COMMIT_COUNT" -f name=BOT_WEEKLY_COMMIT_COUNT -f value="${NEXT}" >/dev/null
           fi
-
-
-
