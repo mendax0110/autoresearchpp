@@ -89,7 +89,10 @@ jobs:
           path: build/
 
       - name: Fix binary permissions
-        run: chmod +x build/autoresearch++
+        run: |
+          find build/ -name "autoresearchpp" -type f
+          chmod +x build/autoresearchpp 2>/dev/null || \
+          chmod +x "$(find build/ -name 'autoresearchpp' -type f | head -1)"
 
       - name: Run tests
         run: |
@@ -118,7 +121,10 @@ jobs:
           path: build/
 
       - name: Fix binary permissions
-        run: chmod +x build/autoresearch++
+        run: |
+          find build/ -name "autoresearchpp" -type f
+          chmod +x build/autoresearchpp 2>/dev/null || \
+          chmod +x "$(find build/ -name 'autoresearchpp' -type f | head -1)"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -175,7 +181,7 @@ jobs:
       - name: Train for 60s (CPU)
         run: |
           set -euo pipefail
-          ./build/autoresearch++ \
+          ./build/autoresearchpp \
             --device cpu \
             --data-dir data \
             --budget-secs 60 \
@@ -223,7 +229,10 @@ jobs:
           path: build/
 
       - name: Fix binary permissions
-        run: chmod +x build/autoresearch++
+        run: |
+          find build/ -name "autoresearchpp" -type f
+          chmod +x build/autoresearchpp 2>/dev/null || \
+          chmod +x "$(find build/ -name 'autoresearchpp' -type f | head -1)"
 
       - name: Download train artifacts
         uses: actions/download-artifact@v4
