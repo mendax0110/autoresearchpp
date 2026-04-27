@@ -1,0 +1,489 @@
+name: autoresearch-ci
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: autoresearch-main
+  cancel-in-progress: false
+
+env:
+  LIBTORCH_URL: https://download.pytorch.org/libtorch/nightly/cpu/libtorch-shared-with-deps-latest.zip
+  LIBTORCH_ROOT: /home/runner/.cache/libtorch
+
+jobs:
+  build:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.actor != 'github-actions[bot]' && github.event.head_commit.author.email != '41898282+github-actions[bot]@users.noreply.github.com') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore LibTorch cache
+        id: libtorch-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LIBTORCH_ROOT }}
+          key: ${{ runner.os }}-libtorch-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Download LibTorch (cache miss)
+        if: steps.libtorch-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p /home/runner/.cache
+          rm -rf "${LIBTORCH_ROOT}"
+          curl -L "${LIBTORCH_URL}" -o /tmp/libtorch.zip
+          unzip -q /tmp/libtorch.zip -d /home/runner/.cache
+          mv /home/runner/.cache/libtorch "${LIBTORCH_ROOT}"
+
+      - name: Configure
+        run: |
+          set -euo pipefail
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=ON \
+            -DTorch_DIR="${LIBTORCH_ROOT}/share/cmake/Torch"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          cmake --build build -j"$(nproc)"
+
+      - name: Upload build tree artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-tree
+          path: |
+            build/
+          if-no-files-found: error
+          retention-days: 7
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore LibTorch cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LIBTORCH_ROOT }}
+          key: ${{ runner.os }}-libtorch-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Download build tree artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-tree
+          path: .
+
+      - name: Run tests
+        run: |
+          set -euo pipefail
+          ctest --test-dir build --output-on-failure
+
+  train:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore LibTorch cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LIBTORCH_ROOT }}
+          key: ${{ runner.os }}-libtorch-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Download build tree artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-tree
+          path: .
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Compute parquet URL hash key
+        id: parquet-hash
+        run: |
+          set -euo pipefail
+          HASH=$(python3 - <<'PY'
+          import hashlib
+          base = "https://huggingface.co/datasets/karpathy/climbmix-400b-shuffle/resolve/main"
+          max_shard = 6542
+          urls = [f"{base}/shard_{i:05d}.parquet" for i in range(max_shard + 1)]
+          print(hashlib.sha256("\n".join(urls).encode("utf-8")).hexdigest())
+          PY
+          )
+          echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache prepare.py outputs
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/autoresearch
+          key: ${{ runner.os }}-prepare-${{ steps.parquet-hash.outputs.hash }}
+
+      - name: Cache converted C++ data
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: ${{ runner.os }}-cpp-data-${{ steps.parquet-hash.outputs.hash }}
+
+      - name: Install data-prep dependencies
+        run: |
+          set -euo pipefail
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install numpy requests pyarrow rustbpe tiktoken torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Prepare dataset cache and tokenizer
+        run: |
+          set -euo pipefail
+          source .venv/bin/activate
+          python prepare.py --num-shards 10
+
+      - name: Convert cached data for C++ runtime
+        run: |
+          set -euo pipefail
+          source .venv/bin/activate
+          python convert_for_cpp.py --cache-dir /home/runner/.cache/autoresearch --out-dir data
+
+      - name: Train for 60s (CPU)
+        run: |
+          set -euo pipefail
+          ./build/autoresearch++ \
+            --device cpu \
+            --data-dir data \
+            --budget-secs 60 \
+            --seq-len 128 \
+            --device-batch-size 16 \
+            --total-batch-size 32768 \
+            --depth 2 \
+            --num-heads 2 \
+            --eval-tokens 25600 \
+            --eval-interval-secs 60
+
+      - name: Upload training artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: train-logs
+          path: |
+            metrics.jsonl
+            experiments.jsonl
+          if-no-files-found: error
+          retention-days: 30
+
+  agent:
+    needs: train
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout (push-capable token)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.BOT_PUSH_TOKEN }}
+
+      - name: Restore LibTorch cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LIBTORCH_ROOT }}
+          key: ${{ runner.os }}-libtorch-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Download build tree artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-tree
+          path: .
+
+      - name: Download train artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: train-logs
+          path: agent-input
+
+      - name: Restore metrics and experiment history
+        run: |
+          set -euo pipefail
+          cp agent-input/metrics.jsonl ./metrics.jsonl
+          cp agent-input/experiments.jsonl ./experiments.jsonl
+
+      - name: Enforce weekly bot commit cap (50/week)
+        id: weekly-cap
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          WEEK=$(date -u +%G-W%V)
+
+          get_var() {
+            local name="$1"
+            gh api -X GET "repos/${REPO}/actions/variables/${name}" --jq '.value' 2>/dev/null || true
+          }
+
+          set_var() {
+            local name="$1"
+            local value="$2"
+            if gh api -X GET "repos/${REPO}/actions/variables/${name}" >/dev/null 2>&1; then
+              gh api -X PATCH "repos/${REPO}/actions/variables/${name}" -f name="${name}" -f value="${value}" >/dev/null
+            else
+              gh api -X POST "repos/${REPO}/actions/variables" -f name="${name}" -f value="${value}" >/dev/null
+            fi
+          }
+
+          STORED_WEEK=$(get_var BOT_WEEK || true)
+          STORED_COUNT=$(get_var BOT_WEEKLY_COMMIT_COUNT || true)
+          STORED_COUNT=${STORED_COUNT:-0}
+
+          if [[ "${STORED_WEEK}" != "${WEEK}" ]]; then
+            STORED_COUNT=0
+            set_var BOT_WEEK "${WEEK}"
+            set_var BOT_WEEKLY_COMMIT_COUNT "0"
+          fi
+
+          if (( STORED_COUNT >= 50 )); then
+            echo "within_cap=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "within_cap=true" >> "$GITHUB_OUTPUT"
+          echo "current_count=${STORED_COUNT}" >> "$GITHUB_OUTPUT"
+
+      - name: Stop when weekly cap reached
+        if: steps.weekly-cap.outputs.within_cap != 'true'
+        run: echo "Weekly bot commit cap reached; skipping agent step."
+
+      - name: Set up Python for agent call
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Ask Copilot for a one-file patch
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        env:
+          COPILOT_API_URL: ${{ secrets.COPILOT_API_URL }}
+          COPILOT_API_KEY: ${{ secrets.COPILOT_API_KEY }}
+          COPILOT_MODEL: gpt-5.3-codex
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade pip requests
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          import requests
+
+          repo = Path('.')
+          files = []
+          for p in sorted((repo / 'src').glob('*.cpp')):
+              files.append(p)
+          for p in sorted((repo / 'include').glob('*.h')):
+              files.append(p)
+          files.append(repo / 'CMakeLists.txt')
+
+          snippets = []
+          for p in files:
+              txt = p.read_text(encoding='utf-8', errors='ignore')
+              snippets.append(f"### {p.as_posix()}\\n" + txt[:12000])
+
+          metrics = (repo / 'metrics.jsonl').read_text(encoding='utf-8', errors='ignore')[-12000:]
+          experiments = (repo / 'experiments.jsonl').read_text(encoding='utf-8', errors='ignore')[-24000:]
+
+          prompt = f"""
+          You are improving val_bpb in this C++ libtorch project.
+          Return ONLY a unified diff patch in a single ```diff fenced block.
+          Hard constraints:
+          - Change exactly one source file.
+          - Keep build and tests passing.
+          - Prefer a small, high-confidence change.
+
+          Current metrics tail:
+          {metrics}
+
+          Experiment history tail:
+          {experiments}
+
+          Source context:
+          {'\\n\\n'.join(snippets)}
+          """
+
+          resp = requests.post(
+              os.environ['COPILOT_API_URL'],
+              headers={
+                  'Authorization': f"Bearer {os.environ['COPILOT_API_KEY']}",
+                  'Content-Type': 'application/json',
+              },
+              json={
+                  'model': os.environ.get('COPILOT_MODEL', 'gpt-5.3-codex'),
+                  'messages': [
+                      {'role': 'system', 'content': 'You are a careful C++ optimizer.'},
+                      {'role': 'user', 'content': prompt},
+                  ],
+                  'temperature': 0.2,
+              },
+              timeout=120,
+          )
+          resp.raise_for_status()
+          payload = resp.json()
+          content = payload['choices'][0]['message']['content']
+          if isinstance(content, list):
+              content = ''.join(part.get('text', '') for part in content if isinstance(part, dict))
+
+          match = re.search(r"```diff\\s*(.*?)```", content, flags=re.S)
+          patch = match.group(1).strip() if match else content.strip()
+          if not patch:
+              raise SystemExit('Empty patch from model')
+
+          Path('agent.patch').write_text(patch + '\\n', encoding='utf-8')
+          print('Wrote agent.patch')
+          PY
+
+      - name: Apply patch and require one changed file
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        run: |
+          set -euo pipefail
+          git apply --index agent.patch
+          CHANGED=$(git diff --cached --name-only | wc -l)
+          if [[ "${CHANGED}" -ne 1 ]]; then
+            echo "Agent patch must touch exactly one file, got ${CHANGED}."
+            exit 1
+          fi
+          git diff --cached --name-only > /tmp/agent_changed_file.txt
+
+      - name: Quick rebuild
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        run: |
+          set -euo pipefail
+          cmake --build build -j"$(nproc)"
+
+      - name: Run gtests after agent patch
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        id: patch-tests
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          ctest --test-dir build --output-on-failure
+
+      - name: Finalize change / revert note
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          def read_jsonl(path):
+              rows = []
+              if not path.exists():
+                  return rows
+              for line in path.read_text(encoding='utf-8', errors='ignore').splitlines():
+                  line = line.strip()
+                  if not line:
+                      continue
+                  try:
+                      rows.append(json.loads(line))
+                  except json.JSONDecodeError:
+                      pass
+              return rows
+
+          metrics = read_jsonl(Path('metrics.jsonl'))
+          experiments = read_jsonl(Path('experiments.jsonl'))
+          current = None
+          for row in reversed(metrics):
+              if isinstance(row, dict) and 'val_bpb' in row:
+                  current = float(row['val_bpb'])
+                  break
+
+          best = None
+          for row in experiments:
+              if isinstance(row, dict) and 'val_bpb' in row:
+                  v = float(row['val_bpb'])
+                  best = v if best is None else min(best, v)
+
+          improved = current is not None and (best is None or current < best)
+          status = 'improved' if improved else 'reverted_no_improvement'
+
+          note = {
+              'kind': 'agent_note',
+              'status': status,
+              'current_val_bpb': current,
+              'best_val_bpb_before': best,
+          }
+          with open('experiments.jsonl', 'a', encoding='utf-8') as f:
+              f.write(json.dumps(note) + '\\n')
+          print(status)
+          PY
+
+          if [[ "${{ steps.patch-tests.outcome }}" != "success" ]]; then
+            echo "Tests failed after agent patch; reverting source change and recording note."
+            AGENT_FILE=$(cat /tmp/agent_changed_file.txt)
+            git restore --staged --worktree "${AGENT_FILE}"
+            python3 - <<'PY'
+            import json
+            with open('experiments.jsonl', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({'kind':'agent_note','status':'reverted_broken_tests'}) + '\\n')
+            PY
+          else
+            STATUS=$(python3 - <<'PY'
+            import json
+            from pathlib import Path
+            last = None
+            for line in Path('experiments.jsonl').read_text(encoding='utf-8', errors='ignore').splitlines():
+                if line.strip():
+                    last = line
+            if not last:
+                print('improved')
+            else:
+                print(json.loads(last).get('status', 'improved'))
+            PY
+            )
+            if [[ "${STATUS}" == "reverted_no_improvement" ]]; then
+              AGENT_FILE=$(cat /tmp/agent_changed_file.txt)
+              git restore --staged --worktree "${AGENT_FILE}"
+            fi
+          fi
+
+          git add experiments.jsonl
+
+      - name: Commit and push (if anything changed)
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --cached --quiet; then
+            echo "No staged changes; skipping commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git commit -m "ci(agent): one-step update from training signal"
+          git push origin HEAD:main
+
+          REPO="${{ github.repository }}"
+          CURRENT="${{ steps.weekly-cap.outputs.current_count }}"
+          NEXT=$(( CURRENT + 1 ))
+          if gh api -X GET "repos/${REPO}/actions/variables/BOT_WEEKLY_COMMIT_COUNT" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/${REPO}/actions/variables/BOT_WEEKLY_COMMIT_COUNT" -f name=BOT_WEEKLY_COMMIT_COUNT -f value="${NEXT}" >/dev/null
+          fi
+
+
+

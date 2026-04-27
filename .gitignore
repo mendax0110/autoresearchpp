@@ -1,0 +1,19 @@
+# Ignore the data directory
+data/
+
+# Ignore the checkpoints directory
+checkpoints/
+
+# Ignore build related folders
+build/
+cmake-build-debug/
+
+# Ignore produced json files
+*.jsonl
+
+# Ignore the runs folder from tensorboard
+runs/
+
+# Ignore IDE related files and folder
+.idea/
+.vscode/
