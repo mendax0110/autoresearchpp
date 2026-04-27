@@ -99,6 +99,14 @@ jobs:
           if [ -d build ]; then
             echo "build directory already present at repo root"
           else
+            # If the artifact extracted build files directly into repo root (no build-tree),
+            # detect common build markers and move them into ./build
+            if [ -f CMakeCache.txt ] || [ -d CMakeFiles ]; then
+              echo "build files extracted into repo root; moving into ./build"
+              mkdir -p build
+              shopt -s dotglob || true
+              mv CMakeCache.txt CMakeFiles Makefile cmake_install.cmake compile_commands.json autoresearchpp* build/ 2>/dev/null || true
+            else
             # downloaded artifact is created in a folder named after the artifact (build-tree)
             # try common layouts and ensure a ./build directory exists for tests
             if [ -d build-tree/build ]; then
@@ -121,8 +129,8 @@ jobs:
               fi
             fi
           fi
-          rm -rf build-tree || true
-          fi
+            rm -rf build-tree || true
+            fi
 
       - name: Run tests
         run: |
