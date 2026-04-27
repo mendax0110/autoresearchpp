@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # trigger ci...
   LIBTORCH_URL: https://download.pytorch.org/libtorch/nightly/cpu/libtorch-shared-with-deps-latest.zip
   LIBTORCH_ROOT: /home/runner/.cache/libtorch
 
