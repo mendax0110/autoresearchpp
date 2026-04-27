@@ -37,8 +37,17 @@ jobs:
           mkdir -p /home/runner/.cache
           rm -rf "${LIBTORCH_ROOT}"
           curl -L "${LIBTORCH_URL}" -o /tmp/libtorch.zip
-          unzip -q /tmp/libtorch.zip -d /home/runner/.cache
-          mv /home/runner/.cache/libtorch "${LIBTORCH_ROOT}"
+          # extract into a temporary directory to avoid moving a directory into itself
+          TMPDIR=$(mktemp -d)
+          unzip -q /tmp/libtorch.zip -d "${TMPDIR}"
+          # most libtorch zips contain a top-level 'libtorch' directory; handle that
+          if [ -d "${TMPDIR}/libtorch" ]; then
+            mv "${TMPDIR}/libtorch" "${LIBTORCH_ROOT}"
+          else
+            # fallback: move whole tmpdir contents into the target
+            mv "${TMPDIR}" "${LIBTORCH_ROOT}"
+          fi
+          rm -rf "${TMPDIR}"
 
       - name: Configure
         run: |
