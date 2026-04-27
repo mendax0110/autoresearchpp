@@ -98,39 +98,31 @@ jobs:
           # If the download already created ./build at repo root, nothing to do
           if [ -d build ]; then
             echo "build directory already present at repo root"
+          elif [ -f CMakeCache.txt ] || [ -d CMakeFiles ]; then
+            echo "build files extracted into repo root; moving into ./build"
+            mkdir -p build
+            shopt -s dotglob || true
+            mv CMakeCache.txt CMakeFiles Makefile cmake_install.cmake compile_commands.json autoresearchpp* build/ 2>/dev/null || true
+            rm -rf build-tree || true
+          elif [ -d build-tree/build ]; then
+            mv build-tree/build ./build
+            rm -rf build-tree || true
+          elif [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
+            mkdir -p build
+            shopt -s dotglob || true
+            mv build-tree/* build/ || true
+            rm -rf build-tree || true
           else
-            # If the artifact extracted build files directly into repo root (no build-tree),
-            # detect common build markers and move them into ./build
-            if [ -f CMakeCache.txt ] || [ -d CMakeFiles ]; then
-              echo "build files extracted into repo root; moving into ./build"
-              mkdir -p build
-              shopt -s dotglob || true
-              mv CMakeCache.txt CMakeFiles Makefile cmake_install.cmake compile_commands.json autoresearchpp* build/ 2>/dev/null || true
+            FOUND=$(find build-tree -maxdepth 3 -type f -name CMakeCache.txt -print -quit 2>/dev/null || true)
+            if [ -n "${FOUND}" ]; then
+              DIR=$(dirname "${FOUND}")
+              mv "${DIR}" ./build
+              rm -rf build-tree || true
             else
-            # downloaded artifact is created in a folder named after the artifact (build-tree)
-            # try common layouts and ensure a ./build directory exists for tests
-            if [ -d build-tree/build ]; then
-              mv build-tree/build ./build
-            else
-            # if the artifact contained build/* (files moved to build-tree root), detect and move
-            if [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
-              mkdir -p build
-              shopt -s dotglob || true
-              mv build-tree/* build/ || true
-            else
-              # search for a nested directory that looks like a build dir
-              FOUND=$(find build-tree -maxdepth 3 -type f -name CMakeCache.txt -print -quit || true)
-              if [ -n "${FOUND}" ]; then
-                DIR=$(dirname "${FOUND}")
-                mv "${DIR}" ./build
-              else
-                echo "Warning: no build directory found inside downloaded artifact" >&2
-                ls -la build-tree || true
-              fi
+              echo "Warning: no build directory found inside downloaded artifact" >&2
+              ls -la build-tree || true
             fi
           fi
-            rm -rf build-tree || true
-            fi
 
       - name: Run tests
         run: |
@@ -163,26 +155,30 @@ jobs:
           set -euo pipefail
           if [ -d build ]; then
             echo "build directory already present at repo root"
+          elif [ -f CMakeCache.txt ] || [ -d CMakeFiles ]; then
+            echo "build files extracted into repo root; moving into ./build"
+            mkdir -p build
+            shopt -s dotglob || true
+            mv CMakeCache.txt CMakeFiles Makefile cmake_install.cmake compile_commands.json autoresearchpp* build/ 2>/dev/null || true
+            rm -rf build-tree || true
+          elif [ -d build-tree/build ]; then
+            mv build-tree/build ./build
+            rm -rf build-tree || true
+          elif [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
+            mkdir -p build
+            shopt -s dotglob || true
+            mv build-tree/* build/ || true
+            rm -rf build-tree || true
           else
-            if [ -d build-tree/build ]; then
-              mv build-tree/build ./build
+            FOUND=$(find build-tree -maxdepth 3 -type f -name CMakeCache.txt -print -quit 2>/dev/null || true)
+            if [ -n "${FOUND}" ]; then
+              DIR=$(dirname "${FOUND}")
+              mv "${DIR}" ./build
+              rm -rf build-tree || true
             else
-            if [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
-              mkdir -p build
-              shopt -s dotglob || true
-              mv build-tree/* build/ || true
-            else
-              FOUND=$(find build-tree -maxdepth 3 -type f -name CMakeCache.txt -print -quit || true)
-              if [ -n "${FOUND}" ]; then
-                DIR=$(dirname "${FOUND}")
-                mv "${DIR}" ./build
-              else
-                echo "Warning: no build directory found inside downloaded artifact" >&2
-                ls -la build-tree || true
-              fi
+              echo "Warning: no build directory found inside downloaded artifact" >&2
+              ls -la build-tree || true
             fi
-          fi
-          rm -rf build-tree || true
           fi
 
       - name: Set up Python
@@ -291,26 +287,30 @@ jobs:
           set -euo pipefail
           if [ -d build ]; then
             echo "build directory already present at repo root"
+          elif [ -f CMakeCache.txt ] || [ -d CMakeFiles ]; then
+            echo "build files extracted into repo root; moving into ./build"
+            mkdir -p build
+            shopt -s dotglob || true
+            mv CMakeCache.txt CMakeFiles Makefile cmake_install.cmake compile_commands.json autoresearchpp* build/ 2>/dev/null || true
+            rm -rf build-tree || true
+          elif [ -d build-tree/build ]; then
+            mv build-tree/build ./build
+            rm -rf build-tree || true
+          elif [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
+            mkdir -p build
+            shopt -s dotglob || true
+            mv build-tree/* build/ || true
+            rm -rf build-tree || true
           else
-            if [ -d build-tree/build ]; then
-              mv build-tree/build ./build
+            FOUND=$(find build-tree -maxdepth 3 -type f -name CMakeCache.txt -print -quit 2>/dev/null || true)
+            if [ -n "${FOUND}" ]; then
+              DIR=$(dirname "${FOUND}")
+              mv "${DIR}" ./build
+              rm -rf build-tree || true
             else
-            if [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
-              mkdir -p build
-              shopt -s dotglob || true
-              mv build-tree/* build/ || true
-            else
-              FOUND=$(find build-tree -maxdepth 3 -type f -name CMakeCache.txt -print -quit || true)
-              if [ -n "${FOUND}" ]; then
-                DIR=$(dirname "${FOUND}")
-                mv "${DIR}" ./build
-              else
-                echo "Warning: no build directory found inside downloaded artifact" >&2
-                ls -la build-tree || true
-              fi
+              echo "Warning: no build directory found inside downloaded artifact" >&2
+              ls -la build-tree || true
             fi
-          fi
-          rm -rf build-tree || true
           fi
 
       - name: Download train artifacts
