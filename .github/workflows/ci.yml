@@ -95,11 +95,15 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          # downloaded artifact is created in a folder named after the artifact (build-tree)
-          # try common layouts and ensure a ./build directory exists for tests
-          if [ -d build-tree/build ]; then
-            mv build-tree/build ./build
+          # If the download already created ./build at repo root, nothing to do
+          if [ -d build ]; then
+            echo "build directory already present at repo root"
           else
+            # downloaded artifact is created in a folder named after the artifact (build-tree)
+            # try common layouts and ensure a ./build directory exists for tests
+            if [ -d build-tree/build ]; then
+              mv build-tree/build ./build
+            else
             # if the artifact contained build/* (files moved to build-tree root), detect and move
             if [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
               mkdir -p build
@@ -118,6 +122,7 @@ jobs:
             fi
           fi
           rm -rf build-tree || true
+          fi
 
       - name: Run tests
         run: |
@@ -148,9 +153,12 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          if [ -d build-tree/build ]; then
-            mv build-tree/build ./build
+          if [ -d build ]; then
+            echo "build directory already present at repo root"
           else
+            if [ -d build-tree/build ]; then
+              mv build-tree/build ./build
+            else
             if [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
               mkdir -p build
               shopt -s dotglob || true
@@ -167,6 +175,7 @@ jobs:
             fi
           fi
           rm -rf build-tree || true
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -272,9 +281,12 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          if [ -d build-tree/build ]; then
-            mv build-tree/build ./build
+          if [ -d build ]; then
+            echo "build directory already present at repo root"
           else
+            if [ -d build-tree/build ]; then
+              mv build-tree/build ./build
+            else
             if [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
               mkdir -p build
               shopt -s dotglob || true
@@ -291,6 +303,7 @@ jobs:
             fi
           fi
           rm -rf build-tree || true
+          fi
 
       - name: Download train artifacts
         uses: actions/download-artifact@v4
