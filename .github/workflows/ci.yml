@@ -91,6 +91,16 @@ jobs:
         with:
           name: build-tree
           path: .
+      - name: Place build tree at repo root
+        if: always()
+        run: |
+          # downloaded artifact is created in a folder named after the artifact (build-tree)
+          # move its contents to the repo root so 'build' is available at ./build
+          if [ -d build-tree ]; then
+            shopt -s dotglob || true
+            mv build-tree/* . || true
+            rm -rf build-tree || true
+          fi
 
       - name: Run tests
         run: |
@@ -117,6 +127,14 @@ jobs:
         with:
           name: build-tree
           path: .
+      - name: Place build tree at repo root
+        if: always()
+        run: |
+          if [ -d build-tree ]; then
+            shopt -s dotglob || true
+            mv build-tree/* . || true
+            rm -rf build-tree || true
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -218,6 +236,14 @@ jobs:
         with:
           name: build-tree
           path: .
+      - name: Place build tree at repo root
+        if: always()
+        run: |
+          if [ -d build-tree ]; then
+            shopt -s dotglob || true
+            mv build-tree/* . || true
+            rm -rf build-tree || true
+          fi
 
       - name: Download train artifacts
         uses: actions/download-artifact@v4
