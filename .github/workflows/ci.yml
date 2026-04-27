@@ -94,13 +94,30 @@ jobs:
       - name: Place build tree at repo root
         if: always()
         run: |
+          set -euo pipefail
           # downloaded artifact is created in a folder named after the artifact (build-tree)
-          # move its contents to the repo root so 'build' is available at ./build
-          if [ -d build-tree ]; then
-            shopt -s dotglob || true
-            mv build-tree/* . || true
-            rm -rf build-tree || true
+          # try common layouts and ensure a ./build directory exists for tests
+          if [ -d build-tree/build ]; then
+            mv build-tree/build ./build
+          else
+            # if the artifact contained build/* (files moved to build-tree root), detect and move
+            if [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
+              mkdir -p build
+              shopt -s dotglob || true
+              mv build-tree/* build/ || true
+            else
+              # search for a nested directory that looks like a build dir
+              FOUND=$(find build-tree -maxdepth 3 -type f -name CMakeCache.txt -print -quit || true)
+              if [ -n "${FOUND}" ]; then
+                DIR=$(dirname "${FOUND}")
+                mv "${DIR}" ./build
+              else
+                echo "Warning: no build directory found inside downloaded artifact" >&2
+                ls -la build-tree || true
+              fi
+            fi
           fi
+          rm -rf build-tree || true
 
       - name: Run tests
         run: |
@@ -130,11 +147,26 @@ jobs:
       - name: Place build tree at repo root
         if: always()
         run: |
-          if [ -d build-tree ]; then
-            shopt -s dotglob || true
-            mv build-tree/* . || true
-            rm -rf build-tree || true
+          set -euo pipefail
+          if [ -d build-tree/build ]; then
+            mv build-tree/build ./build
+          else
+            if [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
+              mkdir -p build
+              shopt -s dotglob || true
+              mv build-tree/* build/ || true
+            else
+              FOUND=$(find build-tree -maxdepth 3 -type f -name CMakeCache.txt -print -quit || true)
+              if [ -n "${FOUND}" ]; then
+                DIR=$(dirname "${FOUND}")
+                mv "${DIR}" ./build
+              else
+                echo "Warning: no build directory found inside downloaded artifact" >&2
+                ls -la build-tree || true
+              fi
+            fi
           fi
+          rm -rf build-tree || true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -239,11 +271,26 @@ jobs:
       - name: Place build tree at repo root
         if: always()
         run: |
-          if [ -d build-tree ]; then
-            shopt -s dotglob || true
-            mv build-tree/* . || true
-            rm -rf build-tree || true
+          set -euo pipefail
+          if [ -d build-tree/build ]; then
+            mv build-tree/build ./build
+          else
+            if [ -f build-tree/CMakeCache.txt ] || [ -d build-tree/CMakeFiles ]; then
+              mkdir -p build
+              shopt -s dotglob || true
+              mv build-tree/* build/ || true
+            else
+              FOUND=$(find build-tree -maxdepth 3 -type f -name CMakeCache.txt -print -quit || true)
+              if [ -n "${FOUND}" ]; then
+                DIR=$(dirname "${FOUND}")
+                mv "${DIR}" ./build
+              else
+                echo "Warning: no build directory found inside downloaded artifact" >&2
+                ls -la build-tree || true
+              fi
+            fi
           fi
+          rm -rf build-tree || true
 
       - name: Download train artifacts
         uses: actions/download-artifact@v4
