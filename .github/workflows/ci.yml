@@ -91,7 +91,7 @@ jobs:
       - name: Fix binary permissions
         run: |
           find build/ -name "autoresearchpp" -type f
-          chmod +x build/autoresearchpp 2>/dev/null || \
+          chmod +x build/autoresearchpp build/test/autoresearchpp_test 2>/dev/null || \
           chmod +x "$(find build/ -name 'autoresearchpp' -type f | head -1)"
 
       - name: Run tests
@@ -123,7 +123,7 @@ jobs:
       - name: Fix binary permissions
         run: |
           find build/ -name "autoresearchpp" -type f
-          chmod +x build/autoresearchpp 2>/dev/null || \
+          chmod +x build/autoresearchpp build/test/autoresearchpp_test 2>/dev/null || \
           chmod +x "$(find build/ -name 'autoresearchpp' -type f | head -1)"
 
       - name: Set up Python
@@ -231,7 +231,7 @@ jobs:
       - name: Fix binary permissions
         run: |
           find build/ -name "autoresearchpp" -type f
-          chmod +x build/autoresearchpp 2>/dev/null || \
+          chmod +x build/autoresearchpp build/test/autoresearchpp_test 2>/dev/null || \
           chmod +x "$(find build/ -name 'autoresearchpp' -type f | head -1)"
 
       - name: Download train artifacts
