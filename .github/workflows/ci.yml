@@ -218,7 +218,9 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
-          python -m pip install numpy requests pyarrow rustbpe tiktoken torch --index-url https://download.pytorch.org/whl/cpu
+          # install general python deps from PyPI, then install torch from PyTorch cpu index
+          python -m pip install numpy requests pyarrow rustbpe tiktoken --no-cache-dir
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu --no-cache-dir torch
 
       - name: Prepare dataset cache and tokenizer
         run: |
