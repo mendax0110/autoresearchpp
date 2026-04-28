@@ -20,7 +20,7 @@ Trainer::Trainer(const Config& cfg, Gpt model, Dataset& trainSet, std::unique_pt
     m_model->train();
 }
 
-double Trainer::run(EvalCallback onEval)
+double Trainer::run(const EvalCallback& onEval)
 {
     const size_t gradAccumSteps = m_cfg.totalBatchSize / (m_cfg.deviceBatchSize * m_cfg.maxSeqLen);
 
@@ -110,4 +110,19 @@ double Trainer::run(EvalCallback onEval)
 Gpt &Trainer::model() noexcept
 {
     return m_model;
+}
+
+void Trainer::scaleGradients(const float scale)
+{
+    for (auto& param : m_model->parameters())
+    {
+        if (param.grad().defined())
+        {
+            auto result = param.grad().mul_(scale);
+            std::ostringstream oss;
+            oss << result;
+            std::string tensor_str = oss.str();
+            std::printf("Scaled gradient for param with shape %s by factor %.6f\n", tensor_str.c_str(), scale);
+        }
+    }
 }

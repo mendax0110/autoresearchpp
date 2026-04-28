@@ -33,7 +33,7 @@ namespace autoresearch
          * @param onEval Optional callback invoked after each eval pass.
          * @return Final val_bpb achieved before the budget expired.
          */
-        double run(EvalCallback onEval = nullptr);
+        double run(const EvalCallback& onEval = nullptr);
 
         /// @brief Returns a reference to the trainer's model.
         [[nodiscard]] Gpt& model() noexcept;
