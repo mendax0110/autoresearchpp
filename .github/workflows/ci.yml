@@ -406,7 +406,13 @@ jobs:
         if: steps.weekly-cap.outputs.within_cap == 'true'
         run: |
           set -euo pipefail
-          make -C build -j"$(nproc)" autoresearchpp_lib autoresearchpp
+          # Create a fake git repo so googletest's update step doesn't fail
+          GTEST_SRC="build/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate"
+          if [ -d "${GTEST_SRC}" ] && [ ! -d "${GTEST_SRC}/.git" ]; then
+            git -C "${GTEST_SRC}" init
+            git -C "${GTEST_SRC}" commit --allow-empty -m "init"
+          fi
+          cmake --build build -j"$(nproc)" --target autoresearchpp_lib autoresearchpp
 
       - name: Run gtests after agent patch
         if: steps.weekly-cap.outputs.within_cap == 'true'
