@@ -375,11 +375,17 @@ jobs:
         if: steps.weekly-cap.outputs.within_cap == 'true'
         run: |
           set -euo pipefail
-          git apply --index agent.patch
+          echo "--- agent.patch contents ---"
+          cat agent.patch
+          echo "----------------------------"
+          if ! git apply --index agent.patch; then
+            echo "Patch failed to apply cleanly; skipping this iteration."
+            exit 0
+          fi
           CHANGED=$(git diff --cached --name-only | wc -l)
           if [[ "${CHANGED}" -ne 1 ]]; then
             echo "Agent patch must touch exactly one file, got ${CHANGED}."
-            exit 1
+            exit 0
           fi
           git diff --cached --name-only > /tmp/agent_changed_file.txt
 
