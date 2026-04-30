@@ -406,11 +406,7 @@ jobs:
         if: steps.weekly-cap.outputs.within_cap == 'true'
         run: |
           set -euo pipefail
-          # Mark googletest git update as already done so CMake skips it
-          find build/_deps -name "googletest-populate-update" -exec touch {} \; 2>/dev/null || true
-          find build/_deps -name "*googletest*stamp*" -exec touch {} \; 2>/dev/null || true
-          touch build/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/googletest-populate-update 2>/dev/null || true
-          cmake --build build -j"$(nproc)" --target autoresearchpp_lib autoresearchpp
+          make -C build -j"$(nproc)" autoresearchpp_lib autoresearchpp
 
       - name: Run gtests after agent patch
         if: steps.weekly-cap.outputs.within_cap == 'true'
