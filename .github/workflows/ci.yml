@@ -406,6 +406,9 @@ jobs:
         if: steps.weekly-cap.outputs.within_cap == 'true'
         run: |
           set -euo pipefail
+          # Disable FetchContent update check by touching the stamp file
+          find build/_deps -name "*-update" -type f -exec touch {} \; 2>/dev/null || true
+          find build/_deps -name "*gitupdate*" -type f -exec touch {} \; 2>/dev/null || true
           cmake --build build -j"$(nproc)" --target autoresearchpp_lib autoresearchpp
 
       - name: Run gtests after agent patch
