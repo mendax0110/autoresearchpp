@@ -322,12 +322,12 @@ jobs:
           files.append(repo / 'CMakeLists.txt')
           
           snippets = []
-          for p in files:
+          for p in files[:5]:
               txt = p.read_text(encoding='utf-8', errors='ignore')
-              snippets.append("### " + p.as_posix() + "\n" + txt[:3000])
+              snippets.append("### " + p.as_posix() + "\n" + txt[:1000])
           
-          metrics = (repo / 'metrics.jsonl').read_text(encoding='utf-8', errors='ignore')[-3000:]
-          experiments = (repo / 'experiments.jsonl').read_text(encoding='utf-8', errors='ignore')[-6000:]
+          metrics = (repo / 'metrics.jsonl').read_text(encoding='utf-8', errors='ignore')[-1000:]
+          experiments = (repo / 'experiments.jsonl').read_text(encoding='utf-8', errors='ignore')[-2000:]
           source_context = "\n\n".join(snippets)
           
           prompt = (
