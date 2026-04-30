@@ -302,7 +302,7 @@ jobs:
       - name: Ask Claude for a one-file patch
         if: steps.weekly-cap.outputs.within_cap == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
         run: |
           set -euo pipefail
           python3 -m pip install --upgrade pip requests
