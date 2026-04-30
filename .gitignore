@@ -9,7 +9,7 @@ build/
 cmake-build-debug/
 
 # Ignore produced json files
-*.jsonl
+#*.jsonl
 
 # Ignore the runs folder from tensorboard
 runs/
