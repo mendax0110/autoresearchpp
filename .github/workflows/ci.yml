@@ -299,80 +299,76 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Ask Copilot for a one-file patch
+      - name: Ask Claude for a one-file patch
         if: steps.weekly-cap.outputs.within_cap == 'true'
         env:
-          COPILOT_API_URL: ${{ secrets.COPILOT_API_URL }}
-          COPILOT_API_KEY: ${{ secrets.COPILOT_API_KEY }}
-          COPILOT_MODEL: gpt-5.3-codex
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-            set -euo pipefail
-            python3 -m pip install --upgrade pip requests
-            python3 - <<'PY'
-            import os
-            import re
-            from pathlib import Path
-            import requests
-            
-            repo = Path('.')
-            files = []
-            for p in sorted((repo / 'src').glob('*.cpp')):
-                files.append(p)
-            for p in sorted((repo / 'include').glob('*.h')):
-                files.append(p)
-            files.append(repo / 'CMakeLists.txt')
-            
-            snippets = []
-            for p in files:
-                txt = p.read_text(encoding='utf-8', errors='ignore')
-                snippets.append("### " + p.as_posix() + "\n" + txt[:12000])
-            
-            metrics = (repo / 'metrics.jsonl').read_text(encoding='utf-8', errors='ignore')[-12000:]
-            experiments = (repo / 'experiments.jsonl').read_text(encoding='utf-8', errors='ignore')[-24000:]
-            source_context = "\n\n".join(snippets)
-            
-            prompt = (
-                "You are improving val_bpb in this C++ libtorch project.\n"
-                "Return ONLY a unified diff patch in a single ```diff fenced block.\n"
-                "Hard constraints:\n"
-                "- Change exactly one source file.\n"
-                "- Keep build and tests passing.\n"
-                "- Prefer a small, high-confidence change.\n\n"
-                "Current metrics tail:\n" + metrics + "\n\n"
-                "Experiment history tail:\n" + experiments + "\n\n"
-                "Source context:\n" + source_context
-            )
-            
-            resp = requests.post(
-                os.environ['COPILOT_API_URL'],
-                headers={
-                    'Authorization': 'Bearer ' + os.environ['COPILOT_API_KEY'],
-                    'Content-Type': 'application/json',
-                },
-                json={
-                    'model': os.environ.get('COPILOT_MODEL', 'gpt-5.3-codex'),
-                    'messages': [
-                        {'role': 'system', 'content': 'You are a careful C++ optimizer.'},
-                        {'role': 'user', 'content': prompt},
-                    ],
-                    'temperature': 0.2,
-                },
-                timeout=120,
-            )
-            resp.raise_for_status()
-            payload = resp.json()
-            content = payload['choices'][0]['message']['content']
-            if isinstance(content, list):
-                content = ''.join(part.get('text', '') for part in content if isinstance(part, dict))
-            
-            match = re.search(r"```diff\s*(.*?)```", content, flags=re.S)
-            patch = match.group(1).strip() if match else content.strip()
-            if not patch:
-                raise SystemExit('Empty patch from model')
-            
-            Path('agent.patch').write_text(patch + '\n', encoding='utf-8')
-            print('Wrote agent.patch')
-            PY
+          set -euo pipefail
+          python3 -m pip install --upgrade pip requests
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          import requests
+          
+          repo = Path('.')
+          files = []
+          for p in sorted((repo / 'src').glob('*.cpp')):
+              files.append(p)
+          for p in sorted((repo / 'include').glob('*.h')):
+              files.append(p)
+          files.append(repo / 'CMakeLists.txt')
+          
+          snippets = []
+          for p in files:
+              txt = p.read_text(encoding='utf-8', errors='ignore')
+              snippets.append("### " + p.as_posix() + "\n" + txt[:12000])
+          
+          metrics = (repo / 'metrics.jsonl').read_text(encoding='utf-8', errors='ignore')[-12000:]
+          experiments = (repo / 'experiments.jsonl').read_text(encoding='utf-8', errors='ignore')[-24000:]
+          source_context = "\n\n".join(snippets)
+          
+          prompt = (
+              "You are improving val_bpb in this C++ libtorch project.\n"
+              "Return ONLY a unified diff patch in a single ```diff fenced block.\n"
+              "Hard constraints:\n"
+              "- Change exactly one source file.\n"
+              "- Keep build and tests passing.\n"
+              "- Prefer a small, high-confidence change.\n\n"
+              "Current metrics tail:\n" + metrics + "\n\n"
+              "Experiment history tail:\n" + experiments + "\n\n"
+              "Source context:\n" + source_context
+          )
+          
+          resp = requests.post(
+              "https://models.inference.ai.azure.com/chat/completions",
+              headers={
+                  'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
+                  'Content-Type': 'application/json',
+              },
+              json={
+                  'model': 'gpt-4o',
+                  'messages': [
+                      {'role': 'system', 'content': 'You are a careful C++ optimizer.'},
+                      {'role': 'user', 'content': prompt},
+                  ],
+                  'temperature': 0.2,
+              },
+              timeout=120,
+          )
+          resp.raise_for_status()
+          payload = resp.json()
+          content = payload['choices'][0]['message']['content']
+          
+          match = re.search(r"```diff\s*(.*?)```", content, flags=re.S)
+          patch = match.group(1).strip() if match else content.strip()
+          if not patch:
+              raise SystemExit('Empty patch from model')
+          
+          Path('agent.patch').write_text(patch + '\n', encoding='utf-8')
+          print('Wrote agent.patch')
+          PY
 
       - name: Apply patch and require one changed file
         if: steps.weekly-cap.outputs.within_cap == 'true'

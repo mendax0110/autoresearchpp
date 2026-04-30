@@ -24,6 +24,7 @@ namespace autoresearch
          * @param model GPT mpdel (moved into trainer ownership)
          * @param trainSet trainer dataset
          * @param evaluator Evaluator for periodic val_bpb meas
+         * @param metricsLog MetricsLog for recording step-wise training metrics
          * @param device Device to run training on
          */
         Trainer(const Config& cfg, Gpt model, Dataset& trainSet, std::unique_ptr<Evaluator> evaluator, MetricsLog& metricsLog, const torch::Device& device);
