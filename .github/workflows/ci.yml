@@ -210,6 +210,7 @@ jobs:
     permissions:
       contents: write
       actions: write
+      models: read
     steps:
       - name: Checkout (push-capable token)
         uses: actions/checkout@v4
@@ -302,7 +303,7 @@ jobs:
       - name: Ask Claude for a one-file patch
         if: steps.weekly-cap.outputs.within_cap == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           python3 -m pip install --upgrade pip requests
