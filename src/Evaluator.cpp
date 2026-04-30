@@ -37,27 +37,21 @@ double Evaluator::evaluate(Gpt& model) const
 
         for (size_t j = 0; j < currentBatch; ++j)
         {
-            auto example = m_dataset.get(i + j);
-            inputs.push_back(example.data);
-            targets.push_back(example.target);
+            auto [input, target] = m_dataset.get((i + j) % numSamples);
+            inputs.push_back(input.to(m_device));
+            targets.push_back(target.to(m_device));
         }
 
-        auto inputBatch = torch::stack(inputs, 0);
-        auto targetBatch = torch::stack(targets, 0);
+        auto inputBatch = torch::stack(inputs);
+        auto targetBatch = torch::stack(targets);
 
-        auto [logits, loss] = model->forward(inputBatch, targetBatch);
+        auto output = model->forward(inputBatch);
+        auto loss = torch::nn::functional::cross_entropy(output, targetBatch, {}, torch::Reduction::Sum);
 
-        totalLoss += loss.item<double>() * static_cast<double>(currentBatch * m_cfg.maxSeqLen);
-        totalTokens += static_cast<double>(currentBatch * m_cfg.maxSeqLen);
+        totalLoss += loss.item<double>();
+        totalTokens += targetBatch.numel();
     }
 
-    model->train();
-
-    if (totalTokens == 0.0) { return std::numeric_limits<double>::infinity(); }
-
-    // convert cross-entropy loss to bits-per-byte (bpb)
-    // using log2(e) factor ; bpb = loss_nats / ln(2)
-    const double avgLoss = totalLoss / totalTokens;
-    const double bpb = avgLoss / std::log(2.0);
-    return bpb;
+    // Avoid division by zero in case of empty dataset
+    return totalTokens > 0 ? totalLoss / (totalTokens * std::log(2)) : std::numeric_limits<double>::infinity();
 }
