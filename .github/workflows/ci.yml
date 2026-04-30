@@ -379,20 +379,20 @@ jobs:
       - name: Commit and push
         if: steps.weekly-cap.outputs.within_cap == 'true'
         env:
-          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+            GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
         run: |
           set -euo pipefail
           if git diff --cached --quiet; then
             echo "No staged changes; skipping commit."
             exit 0
           fi
-
+          
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
+          
           git commit -m "ci(agent): one-step update from training signal"
-          git push origin HEAD:main
-
+          git push https://x-access-token:${{ secrets.BOT_PUSH_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main
+          
           REPO="${{ github.repository }}"
           CURRENT="${{ steps.weekly-cap.outputs.current_count }}"
           NEXT=$(( CURRENT + 1 ))
