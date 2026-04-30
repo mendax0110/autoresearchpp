@@ -10,7 +10,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # trigger ci...
   LIBTORCH_URL: https://download.pytorch.org/libtorch/nightly/cpu/libtorch-shared-with-deps-latest.zip
   LIBTORCH_ROOT: /home/runner/.cache/libtorch
 
@@ -90,10 +89,7 @@ jobs:
           path: build/
 
       - name: Fix binary permissions
-        run: |
-          find build/ -name "autoresearchpp" -type f
-          chmod +x build/autoresearchpp build/test/autoresearchpp_test 2>/dev/null || \
-          chmod +x "$(find build/ -name 'autoresearchpp' -type f | head -1)"
+        run: chmod +x build/autoresearchpp build/test/autoresearchpp_test
 
       - name: Run tests
         run: |
@@ -122,10 +118,7 @@ jobs:
           path: build/
 
       - name: Fix binary permissions
-        run: |
-          find build/ -name "autoresearchpp" -type f
-          chmod +x build/autoresearchpp build/test/autoresearchpp_test 2>/dev/null || \
-          chmod +x "$(find build/ -name 'autoresearchpp' -type f | head -1)"
+        run: chmod +x build/autoresearchpp build/test/autoresearchpp_test
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -218,24 +211,6 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.BOT_PUSH_TOKEN }}
 
-      - name: Restore LibTorch cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.LIBTORCH_ROOT }}
-          key: ${{ runner.os }}-libtorch-${{ hashFiles('CMakeLists.txt') }}
-
-      - name: Download build tree artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: build-tree
-          path: build/
-
-      - name: Fix binary permissions
-        run: |
-          find build/ -name "autoresearchpp" -type f
-          chmod +x build/autoresearchpp build/test/autoresearchpp_test 2>/dev/null || \
-          chmod +x "$(find build/ -name 'autoresearchpp' -type f | head -1)"
-
       - name: Download train artifacts
         uses: actions/download-artifact@v4
         with:
@@ -300,7 +275,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Ask Claude for a one-file patch
+      - name: Ask model for a one-file change
         if: steps.weekly-cap.outputs.within_cap == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -312,7 +287,7 @@ jobs:
           import re
           from pathlib import Path
           import requests
-          
+
           repo = Path('.')
           files = []
           for p in sorted((repo / 'src').glob('*.cpp')):
@@ -320,16 +295,16 @@ jobs:
           for p in sorted((repo / 'include').glob('*.h')):
               files.append(p)
           files.append(repo / 'CMakeLists.txt')
-          
+
           snippets = []
           for p in files[:5]:
               txt = p.read_text(encoding='utf-8', errors='ignore')
               snippets.append("### " + p.as_posix() + "\n" + txt[:1000])
-          
+
           metrics = (repo / 'metrics.jsonl').read_text(encoding='utf-8', errors='ignore')[-1000:]
           experiments = (repo / 'experiments.jsonl').read_text(encoding='utf-8', errors='ignore')[-2000:]
           source_context = "\n\n".join(snippets)
-          
+
           prompt = (
               "You are improving val_bpb in this C++ libtorch project.\n"
               "Pick ONE source file to improve and return the COMPLETE new content of that file.\n"
@@ -346,7 +321,7 @@ jobs:
               "Experiment history tail:\n" + experiments + "\n\n"
               "Source context:\n" + source_context
           )
-          
+
           resp = requests.post(
               "https://models.inference.ai.azure.com/chat/completions",
               headers={
@@ -380,7 +355,7 @@ jobs:
           print('Wrote', target_file)
           PY
 
-      - name: Apply patch and require one changed file
+      - name: Stage changed file
         if: steps.weekly-cap.outputs.within_cap == 'true'
         run: |
           set -euo pipefail
@@ -393,117 +368,15 @@ jobs:
             echo "Agent file not found; skipping."
             exit 0
           fi
-          git add "${AGENT_FILE}"
-          CHANGED=$(git diff --cached --name-only | wc -l)
+          git add "${AGENT_FILE}" experiments.jsonl
+          CHANGED=$(git diff --cached --name-only | grep -v experiments.jsonl | wc -l)
           if [[ "${CHANGED}" -ne 1 ]]; then
-            echo "Expected 1 changed file, got ${CHANGED}; skipping."
+            echo "Expected 1 changed source file, got ${CHANGED}; skipping."
             git restore --staged . 2>/dev/null || true
             exit 0
           fi
-          echo "${AGENT_FILE}" > /tmp/agent_changed_file.txt
 
-      - name: Quick rebuild
-        if: steps.weekly-cap.outputs.within_cap == 'true'
-        run: |
-          set -euo pipefail
-          # Create a fake git repo so googletest's update step doesn't fail
-          GTEST_SRC="build/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate"
-          if [ -d "${GTEST_SRC}" ] && [ ! -d "${GTEST_SRC}/.git" ]; then
-            git -C "${GTEST_SRC}" init
-            git -C "${GTEST_SRC}" commit --allow-empty -m "init"
-          fi
-          cmake --build build -j"$(nproc)" --target autoresearchpp_lib autoresearchpp
-
-      - name: Run gtests after agent patch
-        if: steps.weekly-cap.outputs.within_cap == 'true'
-        id: patch-tests
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          ctest --test-dir build --output-on-failure
-
-      - name: Finalize change / revert note
-        if: steps.weekly-cap.outputs.within_cap == 'true'
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          def read_jsonl(path):
-              rows = []
-              if not path.exists():
-                  return rows
-              for line in path.read_text(encoding='utf-8', errors='ignore').splitlines():
-                  line = line.strip()
-                  if not line:
-                      continue
-                  try:
-                      rows.append(json.loads(line))
-                  except json.JSONDecodeError:
-                      pass
-              return rows
-
-          metrics = read_jsonl(Path('metrics.jsonl'))
-          experiments = read_jsonl(Path('experiments.jsonl'))
-          current = None
-          for row in reversed(metrics):
-              if isinstance(row, dict) and 'val_bpb' in row:
-                  current = float(row['val_bpb'])
-                  break
-
-          best = None
-          for row in experiments:
-              if isinstance(row, dict) and 'val_bpb' in row:
-                  v = float(row['val_bpb'])
-                  best = v if best is None else min(best, v)
-
-          improved = current is not None and (best is None or current < best)
-          status = 'improved' if improved else 'reverted_no_improvement'
-
-          note = {
-              'kind': 'agent_note',
-              'status': status,
-              'current_val_bpb': current,
-              'best_val_bpb_before': best,
-          }
-          with open('experiments.jsonl', 'a', encoding='utf-8') as f:
-              f.write(json.dumps(note) + '\n')
-          print(status)
-          PY
-
-          if [[ "${{ steps.patch-tests.outcome }}" != "success" ]]; then
-            echo "Tests failed after agent patch; reverting source change and recording note."
-            AGENT_FILE=$(cat /tmp/agent_changed_file.txt)
-            git restore --staged --worktree "${AGENT_FILE}"
-            python3 - <<'PY'
-            import json
-            with open('experiments.jsonl', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({'kind':'agent_note','status':'reverted_broken_tests'}) + '\n')
-            PY
-          else
-            STATUS=$(python3 - <<'PY'
-            import json
-            from pathlib import Path
-            last = None
-            for line in Path('experiments.jsonl').read_text(encoding='utf-8', errors='ignore').splitlines():
-                if line.strip():
-                    last = line
-            if not last:
-                print('improved')
-            else:
-                print(json.loads(last).get('status', 'improved'))
-            PY
-            )
-            if [[ "${STATUS}" == "reverted_no_improvement" ]]; then
-              AGENT_FILE=$(cat /tmp/agent_changed_file.txt)
-              git restore --staged --worktree "${AGENT_FILE}"
-            fi
-          fi
-
-          git add experiments.jsonl
-
-      - name: Commit and push (if anything changed)
+      - name: Commit and push
         if: steps.weekly-cap.outputs.within_cap == 'true'
         env:
           GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
