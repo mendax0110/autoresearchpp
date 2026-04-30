@@ -332,7 +332,12 @@ jobs:
           
           prompt = (
               "You are improving val_bpb in this C++ libtorch project.\n"
-              "Return ONLY a unified diff patch in a single ```diff fenced block.\n"
+              "Pick ONE source file to improve and return the COMPLETE new content of that file.\n"
+              "Format your response EXACTLY like this:\n"
+              "FILENAME: src/Evaluator.cpp\n"
+              "```cpp\n"
+              "<complete file content>\n"
+              "```\n"
               "Hard constraints:\n"
               "- Change exactly one source file.\n"
               "- Keep build and tests passing.\n"
@@ -350,6 +355,7 @@ jobs:
               },
               json={
                   'model': 'gpt-4o',
+                  'max_tokens': 2048,
                   'messages': [
                       {'role': 'system', 'content': 'You are a careful C++ optimizer.'},
                       {'role': 'user', 'content': prompt},
@@ -361,39 +367,46 @@ jobs:
           resp.raise_for_status()
           payload = resp.json()
           content = payload['choices'][0]['message']['content']
-          
-          match = re.search(r"```diff\s*(.*?)```", content, flags=re.S)
-          patch = match.group(1).strip() if match else content.strip()
-          if not patch:
-              raise SystemExit('Empty patch from model')
-          
-          Path('agent.patch').write_text(patch + '\n', encoding='utf-8')
-          print('Wrote agent.patch')
+
+          fname_match = re.search(r"FILENAME:\s*(\S+)", content)
+          code_match = re.search(r"```(?:cpp|c\+\+)?\s*(.*?)```", content, flags=re.S)
+          if not fname_match or not code_match:
+              raise SystemExit('Could not parse model response')
+
+          target_file = Path(fname_match.group(1).strip())
+          new_content = code_match.group(1)
+          target_file.write_text(new_content, encoding='utf-8')
+          Path('agent_changed_file.txt').write_text(str(target_file) + '\n', encoding='utf-8')
+          print('Wrote', target_file)
           PY
 
       - name: Apply patch and require one changed file
         if: steps.weekly-cap.outputs.within_cap == 'true'
         run: |
           set -euo pipefail
-          echo "--- agent.patch contents ---"
-          cat agent.patch
-          echo "----------------------------"
-          if ! git apply --index agent.patch; then
-            echo "Patch failed to apply cleanly; skipping this iteration."
+          if [ ! -f agent_changed_file.txt ]; then
+            echo "No changed file recorded; skipping."
             exit 0
           fi
+          AGENT_FILE=$(cat agent_changed_file.txt | tr -d '[:space:]')
+          if [ -z "${AGENT_FILE}" ] || [ ! -f "${AGENT_FILE}" ]; then
+            echo "Agent file not found; skipping."
+            exit 0
+          fi
+          git add "${AGENT_FILE}"
           CHANGED=$(git diff --cached --name-only | wc -l)
           if [[ "${CHANGED}" -ne 1 ]]; then
-            echo "Agent patch must touch exactly one file, got ${CHANGED}."
+            echo "Expected 1 changed file, got ${CHANGED}; skipping."
+            git restore --staged . 2>/dev/null || true
             exit 0
           fi
-          git diff --cached --name-only > /tmp/agent_changed_file.txt
+          echo "${AGENT_FILE}" > /tmp/agent_changed_file.txt
 
       - name: Quick rebuild
         if: steps.weekly-cap.outputs.within_cap == 'true'
         run: |
           set -euo pipefail
-          cmake --build build -j"$(nproc)"
+          cmake --build build -j"$(nproc)" --target autoresearchpp_lib autoresearchpp
 
       - name: Run gtests after agent patch
         if: steps.weekly-cap.outputs.within_cap == 'true'
