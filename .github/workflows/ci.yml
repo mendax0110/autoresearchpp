@@ -412,7 +412,7 @@ jobs:
               "- Do NOT change tensor shapes or types; keep torch::Tensor inputs as tensors.\n"
               "- Avoid any change that makes a torch::nn::functional call receive non-Tensor inputs.\n"
               "- Prefer a small, high-confidence change.\n\n"
-              "Current metrics tail:\n" + metrics + "\n\n"
+              "Current metric tail:\n" + metrics + "\n\n"
               "Experiment history tail:\n" + experiments + "\n\n"
               "Source context:\n" + source_context
           )
