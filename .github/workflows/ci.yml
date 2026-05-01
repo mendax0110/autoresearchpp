@@ -373,13 +373,26 @@ jobs:
               files.append(p)
           files.append(repo / 'CMakeLists.txt')
 
+          extra_files = [
+              repo / 'src' / 'Evaluator.cpp',
+              repo / 'include' / 'Evaluator.h',
+              repo / 'include' / 'Dataset.h',
+              repo / 'src' / 'Model.cpp',
+          ]
+
           snippets = []
+          for p in extra_files:
+              if p.exists():
+                  txt = p.read_text(encoding='utf-8', errors='ignore')
+                  snippets.append(f"### {p.as_posix()}\n" + txt[:20000])
+
+          # Add a few more general files for overall context
           for p in files[:5]:
               txt = p.read_text(encoding='utf-8', errors='ignore')
-              snippets.append("### " + p.as_posix() + "\n" + txt[:1000])
+              snippets.append(f"### {p.as_posix()}\n" + txt[:2000])
 
-          metrics = (repo / 'metrics.jsonl').read_text(encoding='utf-8', errors='ignore')[-1000:]
-          experiments = (repo / 'experiments.jsonl').read_text(encoding='utf-8', errors='ignore')[-2000:]
+          metrics = (repo / 'metrics.jsonl').read_text(encoding='utf-8', errors='ignore')[-4000:]
+          experiments = (repo / 'experiments.jsonl').read_text(encoding='utf-8', errors='ignore')[-8000:]
           source_context = "\n\n".join(snippets)
 
           prompt = (
@@ -394,8 +407,8 @@ jobs:
               "- Change exactly one source file.\n"
               "- Keep build and tests passing.\n"
               "- Do NOT change function signatures or public APIs.\n"
-              "- model->forward(inputBatch, targetBatch) returns a pair (logits, loss). Do NOT call forward with a single tensor.\n"
-              "- m_dataset.get(idx) returns an Example with fields .data and .target. Do NOT use structured binding.\n"
+              "- model->forward(inputBatch, targetBatch) returns (logits, loss); keep two-arg usage.\n"
+              "- Dataset::get(idx) returns a struct with .data and .target fields; use that form.\n"
               "- Do NOT change tensor shapes or types; keep torch::Tensor inputs as tensors.\n"
               "- Avoid any change that makes a torch::nn::functional call receive non-Tensor inputs.\n"
               "- Prefer a small, high-confidence change.\n\n"
