@@ -402,26 +402,36 @@ jobs:
               "Source context:\n" + source_context
           )
 
-          resp = requests.post(
-              "https://models.inference.ai.azure.com/chat/completions",
-              headers={
-                  'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
-                  'Content-Type': 'application/json',
-              },
-              json={
-                  'model': 'gpt-5.2-codex',
-                  'max_tokens': 2048,
-                  'messages': [
-                      {'role': 'system', 'content': 'You are a careful C++ optimizer.'},
-                      {'role': 'user', 'content': prompt},
-                  ],
-                  'temperature': 0.2,
-              },
-              timeout=120,
-          )
-          resp.raise_for_status()
-          payload = resp.json()
-          content = payload['choices'][0]['message']['content']
+          def call_model(model_name: str) -> str:
+              resp = requests.post(
+                  "https://models.inference.ai.azure.com/chat/completions",
+                  headers={
+                      'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
+                      'Content-Type': 'application/json',
+                  },
+                  json={
+                      'model': model_name,
+                      'max_tokens': 2048,
+                      'messages': [
+                          {'role': 'system', 'content': 'You are a careful C++ optimizer.'},
+                          {'role': 'user', 'content': prompt},
+                      ],
+                      'temperature': 0.2,
+                  },
+                  timeout=120,
+              )
+              if resp.status_code >= 400:
+                  raise RuntimeError(f"{model_name} HTTP {resp.status_code}: {resp.text[:500]}")
+              payload = resp.json()
+              return payload['choices'][0]['message']['content']
+
+          model_primary = os.environ.get('MODEL_PRIMARY', 'openai/gpt-4.1')
+          model_fallback = os.environ.get('MODEL_FALLBACK', 'openai/gpt-4o')
+          try:
+              content = call_model(model_primary)
+          except Exception as exc:
+              print(f"Model {model_primary} failed: {exc}")
+              content = call_model(model_fallback)
 
           preview = content[:2000] if isinstance(content, str) else str(content)[:2000]
           Path('agent_response_preview.txt').write_text(preview + "\n", encoding='utf-8')
