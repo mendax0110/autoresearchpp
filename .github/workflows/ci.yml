@@ -394,6 +394,8 @@ jobs:
               "- Change exactly one source file.\n"
               "- Keep build and tests passing.\n"
               "- Do NOT change function signatures or public APIs.\n"
+              "- model->forward(inputBatch, targetBatch) returns a pair (logits, loss). Do NOT call forward with a single tensor.\n"
+              "- m_dataset.get(idx) returns an Example with fields .data and .target. Do NOT use structured binding.\n"
               "- Do NOT change tensor shapes or types; keep torch::Tensor inputs as tensors.\n"
               "- Avoid any change that makes a torch::nn::functional call receive non-Tensor inputs.\n"
               "- Prefer a small, high-confidence change.\n\n"
@@ -449,6 +451,14 @@ jobs:
               raise SystemExit(f'File not under src/ or include/: {target_file}')
 
           new_content = code_match.group(1)
+
+          # Guard against common API misuse in Evaluator.cpp edits
+          if str(target_file) == 'src/Evaluator.cpp':
+              if re.search(r"model->forward\([^,)]*\)", new_content):
+                  raise SystemExit('Invalid forward() usage: expected two arguments')
+              if re.search(r"auto\s*\[\s*\w+\s*,\s*\w+\s*\]\s*=\s*m_dataset.get", new_content):
+                  raise SystemExit('Invalid dataset get() usage: use .data/.target fields')
+
           target_file.write_text(new_content, encoding='utf-8')
           Path('agent_changed_file.txt').write_text(str(target_file) + '\n', encoding='utf-8')
           print('Wrote', target_file)
