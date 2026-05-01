@@ -393,6 +393,9 @@ jobs:
               "Hard constraints:\n"
               "- Change exactly one source file.\n"
               "- Keep build and tests passing.\n"
+              "- Do NOT change function signatures or public APIs.\n"
+              "- Do NOT change tensor shapes or types; keep torch::Tensor inputs as tensors.\n"
+              "- Avoid any change that makes a torch::nn::functional call receive non-Tensor inputs.\n"
               "- Prefer a small, high-confidence change.\n\n"
               "Current metrics tail:\n" + metrics + "\n\n"
               "Experiment history tail:\n" + experiments + "\n\n"
@@ -406,7 +409,7 @@ jobs:
                   'Content-Type': 'application/json',
               },
               json={
-                  'model': 'gpt-4o',
+                  'model': 'gpt-5.2-codex',
                   'max_tokens': 2048,
                   'messages': [
                       {'role': 'system', 'content': 'You are a careful C++ optimizer.'},
@@ -420,17 +423,55 @@ jobs:
           payload = resp.json()
           content = payload['choices'][0]['message']['content']
 
+          preview = content[:2000] if isinstance(content, str) else str(content)[:2000]
+          Path('agent_response_preview.txt').write_text(preview + "\n", encoding='utf-8')
+
           fname_match = re.search(r"FILENAME:\s*(\S+)", content)
           code_match = re.search(r"```(?:cpp|c\+\+)?\s*(.*?)```", content, flags=re.S)
           if not fname_match or not code_match:
               raise SystemExit('Could not parse model response')
 
           target_file = Path(fname_match.group(1).strip())
+          if target_file.suffix not in {'.cpp', '.h', '.hpp'}:
+              raise SystemExit(f'Unexpected file extension: {target_file}')
+          if not (str(target_file).startswith('src/') or str(target_file).startswith('include/')):
+              raise SystemExit(f'File not under src/ or include/: {target_file}')
+
           new_content = code_match.group(1)
           target_file.write_text(new_content, encoding='utf-8')
           Path('agent_changed_file.txt').write_text(str(target_file) + '\n', encoding='utf-8')
           print('Wrote', target_file)
           PY
+
+      - name: Show model response preview
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        run: |
+          set -euo pipefail
+          if [ -f agent_response_preview.txt ]; then
+            echo "--- model response preview ---"
+            cat agent_response_preview.txt
+          else
+            echo "No model response preview found"
+          fi
+
+      - name: Show model change
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        run: |
+          set -euo pipefail
+          if [ -f agent_changed_file.txt ]; then
+            AGENT_FILE=$(cat agent_changed_file.txt | tr -d '[:space:]')
+            echo "Model changed file: ${AGENT_FILE}"
+            if [ -f "${AGENT_FILE}" ]; then
+              echo "--- file head (200 lines) ---"
+              sed -n '1,200p' "${AGENT_FILE}"
+              echo "--- git diff ---"
+              git --no-pager diff -- "${AGENT_FILE}" || true
+              echo "--- git status ---"
+              git status --short || true
+            fi
+          else
+            echo "No agent_changed_file.txt found"
+          fi
 
       - name: Quick rebuild
         if: steps.weekly-cap.outputs.within_cap == 'true'
@@ -438,10 +479,11 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
+          NPROC=$(nproc)
           cmake -B build \
             -DBUILD_TESTS=OFF \
             -DTorch_DIR="${LIBTORCH_ROOT}/share/cmake/Torch"
-          cmake --build build -j"$(nproc)" --target autoresearchpp_lib autoresearchpp
+          cmake --build build -j"${NPROC}" --target autoresearchpp_lib autoresearchpp
 
       - name: Mark rebuild status
         if: steps.weekly-cap.outputs.within_cap == 'true'
