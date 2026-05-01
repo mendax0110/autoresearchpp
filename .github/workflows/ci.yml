@@ -211,6 +211,29 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.BOT_PUSH_TOKEN }}
 
+      - name: Restore LibTorch cache
+        id: libtorch-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LIBTORCH_ROOT }}
+          key: ${{ runner.os }}-libtorch-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Download LibTorch (cache miss)
+        if: steps.libtorch-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p /home/runner/.cache
+          rm -rf "${LIBTORCH_ROOT}"
+          curl -L "${LIBTORCH_URL}" -o /tmp/libtorch.zip
+          TMPDIR=$(mktemp -d)
+          unzip -q /tmp/libtorch.zip -d "${TMPDIR}"
+          if [ -d "${TMPDIR}/libtorch" ]; then
+            mv "${TMPDIR}/libtorch" "${LIBTORCH_ROOT}"
+          else
+            mv "${TMPDIR}" "${LIBTORCH_ROOT}"
+          fi
+          rm -rf "${TMPDIR}"
+
       - name: Download train artifacts
         uses: actions/download-artifact@v4
         with:
@@ -274,6 +297,60 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Compute parquet URL hash key
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        id: parquet-hash
+        run: |
+          set -euo pipefail
+          HASH=$(python3 - <<'PY'
+          import hashlib
+          base = "https://huggingface.co/datasets/karpathy/climbmix-400b-shuffle/resolve/main"
+          max_shard = 6542
+          urls = [f"{base}/shard_{i:05d}.parquet" for i in range(max_shard + 1)]
+          print(hashlib.sha256("\n".join(urls).encode("utf-8")).hexdigest())
+          PY
+          )
+          echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache prepare.py outputs
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/autoresearch
+          key: ${{ runner.os }}-prepare-${{ steps.parquet-hash.outputs.hash }}
+
+      - name: Cache converted C++ data
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        id: cpp-data-cache
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: ${{ runner.os }}-cpp-data-${{ steps.parquet-hash.outputs.hash }}
+
+      - name: Install data-prep dependencies
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.cpp-data-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install numpy requests pyarrow rustbpe tiktoken --no-cache-dir
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu --no-cache-dir torch
+
+      - name: Prepare dataset cache and tokenizer
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.cpp-data-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          source .venv/bin/activate
+          python prepare.py --num-shards 10
+
+      - name: Convert cached data for C++ runtime
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.cpp-data-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          source .venv/bin/activate
+          python convert_for_cpp.py --cache-dir /home/runner/.cache/autoresearch --out-dir data
 
       - name: Ask model for a one-file change
         if: steps.weekly-cap.outputs.within_cap == 'true'
@@ -355,8 +432,107 @@ jobs:
           print('Wrote', target_file)
           PY
 
-      - name: Stage changed file
+      - name: Quick rebuild
         if: steps.weekly-cap.outputs.within_cap == 'true'
+        run: |
+          set -euo pipefail
+          cmake -B build \
+            -DBUILD_TESTS=OFF \
+            -DTorch_DIR="${LIBTORCH_ROOT}/share/cmake/Torch"
+          cmake --build build -j"$(nproc)" --target autoresearchpp_lib autoresearchpp
+
+      - name: Capture baseline val_bpb
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        id: baseline
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+
+          best = None
+          path = Path('experiments.jsonl')
+          if path.exists():
+              for line in path.read_text(encoding='utf-8', errors='ignore').splitlines():
+                  if not line.strip():
+                      continue
+                  try:
+                      row = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  if isinstance(row, dict) and 'val_bpb' in row:
+                      v = float(row['val_bpb'])
+                      best = v if best is None else min(best, v)
+          if best is None:
+              print('best_before=')
+          else:
+              print(f'best_before={best}')
+          PY
+
+      - name: Run evaluation experiment
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        run: |
+          set -euo pipefail
+          ./build/autoresearchpp \
+            --device cpu \
+            --data-dir data \
+            --budget-secs 60 \
+            --seq-len 128 \
+            --device-batch-size 16 \
+            --total-batch-size 32768 \
+            --depth 2 \
+            --num-heads 2 \
+            --eval-tokens 25600 \
+            --eval-interval-secs 60
+
+      - name: Evaluate val_bpb
+        if: steps.weekly-cap.outputs.within_cap == 'true'
+        id: eval
+        env:
+          BEST_BEFORE: ${{ steps.baseline.outputs.best_before }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          from pathlib import Path
+
+          best_before = os.environ.get('BEST_BEFORE')
+          best_before = float(best_before) if best_before else None
+
+          current = None
+          mpath = Path('metrics.jsonl')
+          if mpath.exists():
+              for line in reversed(mpath.read_text(encoding='utf-8', errors='ignore').splitlines()):
+                  if not line.strip():
+                      continue
+                  try:
+                      row = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  if isinstance(row, dict) and 'val_bpb' in row:
+                      current = float(row['val_bpb'])
+                      break
+
+          improved = current is not None and (best_before is None or current < best_before)
+          print(f"improved={'true' if improved else 'false'}")
+          print(f"current_val_bpb={'' if current is None else current}")
+          PY
+
+      - name: Revert changes when not improved
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.eval.outputs.improved != 'true'
+        run: |
+          set -euo pipefail
+          if [ -f agent_changed_file.txt ]; then
+            AGENT_FILE=$(cat agent_changed_file.txt | tr -d '[:space:]')
+            if [ -n "${AGENT_FILE}" ]; then
+              git restore --staged --worktree "${AGENT_FILE}" || true
+            fi
+          fi
+          git restore --staged --worktree metrics.jsonl experiments.jsonl || true
+
+      - name: Stage changed file
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.eval.outputs.improved == 'true'
         run: |
           set -euo pipefail
           if [ ! -f agent_changed_file.txt ]; then
@@ -377,7 +553,7 @@ jobs:
           fi
 
       - name: Commit and push
-        if: steps.weekly-cap.outputs.within_cap == 'true'
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.eval.outputs.improved == 'true'
         env:
             GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
         run: |
@@ -399,3 +575,5 @@ jobs:
           if gh api -X GET "repos/${REPO}/actions/variables/BOT_WEEKLY_COMMIT_COUNT" >/dev/null 2>&1; then
             gh api -X PATCH "repos/${REPO}/actions/variables/BOT_WEEKLY_COMMIT_COUNT" -f name=BOT_WEEKLY_COMMIT_COUNT -f value="${NEXT}" >/dev/null
           fi
+
+
