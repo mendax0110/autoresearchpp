@@ -425,13 +425,14 @@ jobs:
               payload = resp.json()
               return payload['choices'][0]['message']['content']
 
-          model_primary = os.environ.get('MODEL_PRIMARY', 'openai/gpt-4.1')
-          model_fallback = os.environ.get('MODEL_FALLBACK', 'openai/gpt-4o')
+          model_primary = os.environ.get('MODEL_PRIMARY', 'gpt-4.1')
+          model_fallback = os.environ.get('MODEL_FALLBACK', 'gpt-4o')
+
           try:
-              content = call_model(model_primary)
+            content = call_model(model_primary)
           except Exception as exc:
-              print(f"Model {model_primary} failed: {exc}")
-              content = call_model(model_fallback)
+            print(f"Model {model_primary} failed: {exc}")
+            content = call_model(model_fallback)
 
           preview = content[:2000] if isinstance(content, str) else str(content)[:2000]
           Path('agent_response_preview.txt').write_text(preview + "\n", encoding='utf-8')
