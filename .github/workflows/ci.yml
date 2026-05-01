@@ -434,6 +434,8 @@ jobs:
 
       - name: Quick rebuild
         if: steps.weekly-cap.outputs.within_cap == 'true'
+        id: rebuild
+        continue-on-error: true
         run: |
           set -euo pipefail
           cmake -B build \
@@ -441,8 +443,31 @@ jobs:
             -DTorch_DIR="${LIBTORCH_ROOT}/share/cmake/Torch"
           cmake --build build -j"$(nproc)" --target autoresearchpp_lib autoresearchpp
 
-      - name: Capture baseline val_bpb
+      - name: Mark rebuild status
         if: steps.weekly-cap.outputs.within_cap == 'true'
+        id: rebuild-status
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.rebuild.outcome }}" = "success" ]; then
+            echo "build_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Revert changes when rebuild failed
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.rebuild-status.outputs.build_ok != 'true'
+        run: |
+          set -euo pipefail
+          if [ -f agent_changed_file.txt ]; then
+            AGENT_FILE=$(cat agent_changed_file.txt | tr -d '[:space:]')
+            if [ -n "${AGENT_FILE}" ]; then
+              git restore --staged --worktree "${AGENT_FILE}" || true
+            fi
+          fi
+          git restore --staged --worktree metrics.jsonl experiments.jsonl || true
+
+      - name: Capture baseline val_bpb
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.rebuild-status.outputs.build_ok == 'true'
         id: baseline
         run: |
           set -euo pipefail
@@ -470,7 +495,7 @@ jobs:
           PY
 
       - name: Run evaluation experiment
-        if: steps.weekly-cap.outputs.within_cap == 'true'
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.rebuild-status.outputs.build_ok == 'true'
         run: |
           set -euo pipefail
           ./build/autoresearchpp \
@@ -486,7 +511,7 @@ jobs:
             --eval-interval-secs 60
 
       - name: Evaluate val_bpb
-        if: steps.weekly-cap.outputs.within_cap == 'true'
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.rebuild-status.outputs.build_ok == 'true'
         id: eval
         env:
           BEST_BEFORE: ${{ steps.baseline.outputs.best_before }}
@@ -520,7 +545,7 @@ jobs:
           PY
 
       - name: Revert changes when not improved
-        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.eval.outputs.improved != 'true'
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.rebuild-status.outputs.build_ok == 'true' && steps.eval.outputs.improved != 'true'
         run: |
           set -euo pipefail
           if [ -f agent_changed_file.txt ]; then
@@ -532,7 +557,7 @@ jobs:
           git restore --staged --worktree metrics.jsonl experiments.jsonl || true
 
       - name: Stage changed file
-        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.eval.outputs.improved == 'true'
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.rebuild-status.outputs.build_ok == 'true' && steps.eval.outputs.improved == 'true'
         run: |
           set -euo pipefail
           if [ ! -f agent_changed_file.txt ]; then
@@ -553,7 +578,7 @@ jobs:
           fi
 
       - name: Commit and push
-        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.eval.outputs.improved == 'true'
+        if: steps.weekly-cap.outputs.within_cap == 'true' && steps.rebuild-status.outputs.build_ok == 'true' && steps.eval.outputs.improved == 'true'
         env:
             GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
         run: |
@@ -575,5 +600,4 @@ jobs:
           if gh api -X GET "repos/${REPO}/actions/variables/BOT_WEEKLY_COMMIT_COUNT" >/dev/null 2>&1; then
             gh api -X PATCH "repos/${REPO}/actions/variables/BOT_WEEKLY_COMMIT_COUNT" -f name=BOT_WEEKLY_COMMIT_COUNT -f value="${NEXT}" >/dev/null
           fi
-
 
