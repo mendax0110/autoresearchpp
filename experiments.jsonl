@@ -18,4 +18,3 @@
 {"timestamp":"2026-04-26T20:06:29Z","device":"CPU","val_bpb":10.533331,"steps":54,"budget_secs":300,"note":"Tried true device-batch training via contiguous getBatch in trainer/evaluator; far fewer optimizer updates and much worse val_bpb, reverted training-path batching."}
 {"timestamp":"2026-04-26T20:13:02Z","device":"CPU","val_bpb":9.916056,"steps":687,"budget_secs":300,"note":"Restored per-sample training path while keeping backend-aware CPU-host token storage; still below best 9.7823."}
 {"timestamp":"2026-04-26T20:19:09Z","device":"CPU","val_bpb":9.909487,"steps":659,"budget_secs":300,"note":"Removed hot-path bounds/wrap checks in Dataset::get to trim overhead; no improvement over best run."}
-{"timestamp":"2026-04-30T22:15:05Z","device":"CPU","val_bpb":10.097798,"steps":1414,"budget_secs":60,"note":""}
