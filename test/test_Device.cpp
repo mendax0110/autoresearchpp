@@ -6,7 +6,7 @@ using namespace autoresearch;
 
 TEST(DeviceTest, CpuDeviceResolves)
 {
-    DeviceWrapper device("cpu");
+    const DeviceWrapper device("cpu");
     EXPECT_TRUE(device.isCpu());
     EXPECT_FALSE(device.isCuda());
     EXPECT_FALSE(device.isMps());
@@ -22,7 +22,7 @@ TEST(DeviceTest, CudaResolutionMatchesAvailability)
 {
     if (torch::cuda::is_available())
     {
-        DeviceWrapper device("cuda");
+        const DeviceWrapper device("cuda");
         EXPECT_TRUE(device.isCuda());
     }
     else

@@ -49,7 +49,7 @@ torch::Device DeviceWrapper::resolve(const std::string& deviceStr)
 {
     if (deviceStr == "cpu")
     {
-        return torch::Device(torch::kCPU);
+        return {torch::kCPU};
     }
 
     if (deviceStr == "mps")
@@ -59,7 +59,7 @@ torch::Device DeviceWrapper::resolve(const std::string& deviceStr)
         {
             throw std::runtime_error("MPS backend requested but not available on this system.");
         }
-        return torch::Device(torch::kMPS);
+        return {torch::kMPS};
 #else
         throw std::runtime_error("MPS backend is only supported on Apple Silicon devices.");
 #endif
@@ -77,8 +77,8 @@ torch::Device DeviceWrapper::resolve(const std::string& deviceStr)
         {
             idx = std::stoi(deviceStr.substr(5));
         }
-        return torch::Device(torch::kCUDA, static_cast<DeviceIndex>(idx));
+        return {torch::kCUDA, static_cast<DeviceIndex>(idx)};
     }
 
-    throw std::invalid_argument("Unknown device string: \"" + deviceStr + "\". Valid options are \"cpu\", \"mps\", \"cuda\" or \"cuda:<index>\".");
+    throw std::invalid_argument("Unknown device string: \"" + deviceStr + R"(". Valid options are "cpu", "mps", "cuda" or "cuda:<index>".)");
 }

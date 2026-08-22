@@ -6,6 +6,9 @@
 
 namespace autoresearch
 {
+    /**
+     * @brief Struct representing the configuration \struct Config
+     */
     struct Config
     {
         // Training

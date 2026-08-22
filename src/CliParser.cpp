@@ -6,7 +6,7 @@
 
 using namespace autoresearch;
 
-Config CliParser::parse(std::span<const char* const> args)
+Config CliParser::parse(const std::span<const char* const> args)
 {
     Config cfg;
 
@@ -74,10 +74,6 @@ Config CliParser::parse(std::span<const char* const> args)
         else if (arg == "--eval-interval-secs")
         {
             cfg.evalIntervalSecs = std::stoull(std::string(requireNext()));
-        }
-        else if (arg == "--data-dir")
-        {
-            cfg.dataDir = std::string(requireNext());
         }
         else if (arg == "--data-dir")
         {

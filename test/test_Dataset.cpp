@@ -92,7 +92,7 @@ TEST(DatasetTest, InvalidByteSizeThrows)
 {
     const auto path = makeTempPath("dataset-bad-");
     std::ofstream out(path, std::ios::binary);
-    const char bytes[3] = {'a', 'b', 'c'};
+    constexpr char bytes[3] = {'a', 'b', 'c'};
     out.write(bytes, sizeof(bytes));
     out.close();
 

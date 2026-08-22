@@ -249,6 +249,7 @@ def get_token_bytes(device="cpu"):
     path = os.path.join(TOKENIZER_DIR, "token_bytes.pt")
     with open(path, "rb") as f:
         return torch.load(f, map_location=device)
+    return None
 
 
 def _document_batches(split, tokenizer_batch_size=128):
@@ -316,7 +317,7 @@ def make_dataloader(tokenizer, B, T, split, buffer_size=1000):
                 best_len = 0
                 for i, doc in enumerate(doc_buffer):
                     doc_len = len(doc)
-                    if doc_len <= remaining and doc_len > best_len:
+                    if remaining >= doc_len > best_len:
                         best_idx = i
                         best_len = doc_len
 

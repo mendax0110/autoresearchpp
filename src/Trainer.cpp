@@ -77,7 +77,6 @@ double Trainer::run(const EvalCallback& onEval)
         const auto now = std::chrono::steady_clock::now();
         const double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime).count() / 1000.0;
         const float loss = accumulatedLoss / static_cast<float>(effectiveGradAccumSteps);
-        //m_metricsLog.append({step, elapsed, loss, 0.0});
         double valBpbThisStep = 0.0;
         if (now - lastEvalTime >= evalInterval)
         {
@@ -92,7 +91,7 @@ double Trainer::run(const EvalCallback& onEval)
                 onEval(step, lastValBpb);
             }
         }
-        m_metricsLog.append({step, elapsed, loss, valBpbThisStep});
+        m_metricsLog.append({.step = step, .elapsedS = elapsed, .trainLoss = loss, .valBpb = valBpbThisStep});
     }
 
     // final eval at end of budget

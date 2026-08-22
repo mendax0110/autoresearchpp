@@ -92,6 +92,7 @@ def shard_token_count(cache_file: Path) -> int:
     with open(cache_file, "rb") as f:
         arr = np.load(cache_file, mmap_mode="r")
         return len(arr)
+    return None
 
 
 def stream_to_bins(
